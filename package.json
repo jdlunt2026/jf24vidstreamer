@@ -8,7 +8,8 @@
     "dev:client": "vite",
     "build": "vite build",
     "start": "node server/index.js",
-    "supervised": "node server/supervisor.js"
+    "supervised": "node server/supervisor.js",
+    "check-discord": "node server/check-discord.js"
   },
   "private": true,
   "license": "MIT",

@@ -110,6 +110,11 @@ without `https://`).
 Join a voice channel → the rocket icon (**Activities**) → your app. Anyone in
 the channel can join from the same menu.
 
+If **you** can't find the app in the Activities list, run
+`npm run check-discord -- <bot token>` (Developer Portal → Bot → Reset Token).
+It checks that Activities are on and creates the "Entry Point" command Discord
+needs to list the app, if it's missing. Then restart Discord (Ctrl+R).
+
 If friends can't find the app in the Activities list, Discord may only show
 unverified apps to the owner and testers. Add them in the Developer Portal
 under **App Testers**.
