@@ -1,5 +1,6 @@
-# One-time setup on Windows: installs Node.js and FFmpeg (via winget) if they're
-# missing, installs npm packages, and creates .env.
+# One-time setup on Windows: installs Node.js (and optionally cloudflared) via
+# winget if missing, installs npm packages, builds the Activity client, and
+# creates .env.
 #
 # Run from the repo folder:  windows\setup.cmd
 # (or: powershell -ExecutionPolicy Bypass -File windows\setup.ps1)
@@ -33,21 +34,22 @@ if ($nodeMajor -lt 22) {
 }
 Write-Host "Node.js $(& node --version)" -ForegroundColor Green
 
-# --- FFmpeg --------------------------------------------------------------------
-# Gyan's "full" build includes libx264, libopus, NVENC, Quick Sync and AMF.
-if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-    Install-WithWinget "Gyan.FFmpeg" "FFmpeg"
+# --- cloudflared (optional) ----------------------------------------------------
+# Discord has to reach this server over public HTTPS. A Cloudflare Tunnel is
+# the recommended way; see README "Make the server reachable".
+if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
+    $answer = Read-Host "Install cloudflared for a Cloudflare Tunnel? [Y/n]"
+    if ($answer -notmatch "^[nN]") { Install-WithWinget "Cloudflare.cloudflared" "cloudflared" }
 }
-$ffmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
-if (-not $ffmpeg) {
-    throw "FFmpeg was installed but isn't on PATH yet. Open a new terminal and re-run this script."
-}
-Write-Host "FFmpeg: $ffmpeg" -ForegroundColor Green
 
-# --- npm packages --------------------------------------------------------------
+# --- npm packages + client build -----------------------------------------------
 Write-Host "Installing npm packages..." -ForegroundColor Cyan
-& npm ci --omit=dev
+& npm ci
 if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit $LASTEXITCODE)" }
+
+Write-Host "Building the Activity client..." -ForegroundColor Cyan
+& npm run build
+if ($LASTEXITCODE -ne 0) { throw "npm run build failed (exit $LASTEXITCODE)" }
 
 # --- .env ----------------------------------------------------------------------
 $envFile = Join-Path $Root ".env"
@@ -55,30 +57,11 @@ if (-not (Test-Path $envFile)) {
     Copy-Item (Join-Path $Root ".env.example") $envFile
     Write-Host "Created .env from .env.example" -ForegroundColor Green
 }
-# Record ffmpeg's full path so the bot finds it even when started by Task
-# Scheduler, which doesn't always see PATH changes made by winget.
-$content = Get-Content $envFile -Raw
-if ($content -match "(?m)^FFMPEG_PATH=[^\r\n]*") {
-    $content = $content -replace "(?m)^FFMPEG_PATH=[^\r\n]*", "FFMPEG_PATH=$ffmpeg"
-} else {
-    $content = $content.TrimEnd() + "`r`nFFMPEG_PATH=$ffmpeg`r`n"
-}
-[IO.File]::WriteAllText($envFile, $content)  # UTF-8 without BOM
-
-# --- Hardware encoders ---------------------------------------------------------
-$encoders = & $ffmpeg -hide_banner -encoders 2>$null | Out-String
-$found = @()
-if ($encoders -match "h264_nvenc") { $found += "nvenc (NVIDIA)" }
-if ($encoders -match "h264_qsv")   { $found += "qsv (Intel)" }
-if ($encoders -match "h264_amf")   { $found += "amf (AMD)" }
-if ($found) {
-    Write-Host "Your FFmpeg supports these GPU encoders (STREAM_ENCODER): $($found -join ', ')"
-    Write-Host "They only work if you actually have that GPU."
-}
 
 Write-Host ""
-Write-Host "Setup done. Next:" -ForegroundColor Green
+Write-Host "Setup done. Next (details in README.md):" -ForegroundColor Green
 Write-Host "  1. Fill in .env (opening it in Notepad now)"
-Write-Host "  2. Run windows\start.cmd to start streaming"
-Write-Host "  3. Optional: windows\autostart.cmd to start it automatically with Windows"
+Write-Host "  2. Run windows\start.cmd"
+Write-Host "  3. Point your tunnel at http://localhost:8080 and set the Discord URL mapping"
+Write-Host "  4. Optional: windows\autostart.cmd to start it automatically with Windows"
 Start-Process notepad.exe $envFile

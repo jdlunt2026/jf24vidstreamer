@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jf24</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <video id="video" playsinline></video>
+
+    <div id="status" class="status">Connecting…</div>
+
+    <button id="unmute" class="unmute" hidden>🔇 Click to unmute</button>
+
+    <header id="nowplaying" class="overlay top">
+      <div class="np-label">Now playing</div>
+      <div id="np-title" class="np-title"></div>
+      <div id="np-subtitle" class="np-subtitle"></div>
+      <div class="progress"><div id="np-bar" class="bar"></div></div>
+      <div id="np-time" class="np-time"></div>
+    </header>
+
+    <footer class="overlay bottom">
+      <div class="controls">
+        <button id="mute" title="Mute">🔊</button>
+        <input id="volume" type="range" min="0" max="1" step="0.05" value="1" title="Volume" />
+        <span class="spacer"></span>
+        <button id="panel-toggle">Up next</button>
+        <button id="skip" hidden>Skip ⏭</button>
+        <button id="fullscreen" title="Fullscreen">⛶</button>
+      </div>
+    </footer>
+
+    <aside id="panel" class="panel" hidden>
+      <button id="panel-close" class="close" title="Close">✕</button>
+      <h2>Up next</h2>
+      <ol id="upnext"></ol>
+      <form id="search" hidden>
+        <h2>Add to queue</h2>
+        <input id="search-input" type="search" placeholder="Search movies and shows" autocomplete="off" />
+        <ul id="results"></ul>
+      </form>
+    </aside>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

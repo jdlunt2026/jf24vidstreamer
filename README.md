@@ -1,109 +1,142 @@
 # jf24vidstreamer
 
-Streams video from a Jellyfin server into a Discord voice channel, nonstop. It
-shuffles through your library (or plays a show or playlist in order), plays
-`!play` requests first, and rejoins on its own after a disconnect.
+A 24/7 "TV channel" from your Jellyfin library, as a **Discord Activity**.
+Start it in a voice channel and everyone who joins sees the same movie or
+episode at the same point, like live TV. It shuffles your library (or plays a
+show in order), lets people skip and queue things, and keeps going forever.
 
-> [!WARNING]
-> **This runs on a regular Discord user account, not a bot account.**
-> Discord's bot API can't send video (Go Live or camera); bots only get audio.
-> Every working video-streaming bot is a "selfbot" that automates a user
-> account, which is against Discord's Terms of Service. The account can be
-> banned. **Use a throwaway alt account**, never your main one.
+It uses an official Discord application and the Embedded App SDK. No
+self-bot, no user tokens, nothing against Discord's terms.
 
 ## How it works
 
 ```
-Jellyfin /Videos/{id}/stream?static=true   (original file, no server transcode)
-   │
-   ▼  feeder ffmpeg, one per item: scale/letterbox to fixed size, H.264 + Opus,
-   │  timestamps shifted so they keep counting up across items
-   ▼  MPEG-TS into one never-ending pipe
-remux ffmpeg (copy, MPEG-TS → NUT)
-   ▼
-@dank074/discord-video-stream playStream()  →  Discord Go Live
+ Discord voice channel
+ ┌──────────────────────────────┐       ┌──────────────────────────────────┐
+ │ Activity (web page in each    │       │ jf24 server (this repo, Node)    │
+ │ viewer's Discord client)      │──────▶│  • schedule: what's on, since    │
+ │  hls.js player, synced to the │ via   │    when; skip / queue            │
+ │  schedule; skip / queue UI    │Discord│  • Discord OAuth                 │
+ └──────────────────────────────┘ proxy  │  • relays Jellyfin HLS streams   │
+                                         └───────────────┬──────────────────┘
+                                                         │ LAN, API key stays here
+                                                   ┌─────▼─────┐
+                                                   │ Jellyfin  │
+                                                   └───────────┘
 ```
 
-Discord only ever sees one continuous stream, so the Go Live never ends
-between episodes and viewers don't get kicked out of it. If anything breaks
-(network, Discord voice, ffmpeg), the whole pipeline restarts with backoff.
+- The server keeps a schedule ("item X started at 21:04:10"). It doesn't
+  stream anything itself; it just knows what's on.
+- When someone opens the Activity, it asks the server what's on and plays it
+  from `now - startedAt`. Every viewer is in sync to within a second or two,
+  and the player catches up on its own after buffering.
+- Video comes from Jellyfin as HLS. Jellyfin sends the original video when the
+  browser can play it (H.264 under `MAX_BITRATE_KBPS`) and transcodes
+  otherwise. The server relays it and adds the Jellyfin API key, which never
+  reaches viewers.
+- When nobody is watching, nothing is streamed. The schedule keeps moving,
+  so it's "live" whenever someone tunes in.
 
 ## Setup
 
-The steps below are the same on every OS. On Windows, follow
-[Running on Windows](#running-on-windows) instead of step 4.
+You need:
+- a PC that's always on and can reach Jellyfin (Windows, Linux or macOS)
+- a way to give that PC a public HTTPS address: a Cloudflare Tunnel (needs a
+  domain on Cloudflare) or Tailscale Funnel (free, no domain). See step 4.
 
-Requirements: Node.js 22+ and `ffmpeg` on `PATH` (or use Docker).
+### 1. Create the Discord application
 
-1. **Discord account:** create an alt account and add it to your server.
-   Get its token: log in at discord.com in a browser, open DevTools → Network,
-   and copy the `Authorization` header from any request to `/api`.
-   Turn on Developer Mode (Settings → Advanced), then right-click to copy the
-   server ID, the voice channel ID, and your own user ID.
-2. **Jellyfin:** Dashboard → API Keys → create one.
-3. `cp .env.example .env` and fill it in.
-4. Run it:
+1. Go to <https://discord.com/developers/applications> → **New Application**.
+2. **OAuth2**: copy the **Client ID** and **Client Secret** (Reset Secret).
+   Under Redirects, add `https://127.0.0.1` (a placeholder Discord requires;
+   it's never used).
+3. **Activities → Settings**: turn on **Enable Activities**. Choose the
+   platforms you want (desktop/web, and mobile if you like).
+4. **Activities → URL Mappings**: you'll fill this in at step 4.
+5. **Installation**: use the install link to add the app to your server.
 
-   ```sh
-   npm install
-   npm start
-   ```
+### 2. Get a Jellyfin API key
 
-   or with Docker:
+Jellyfin → Dashboard → API Keys → **+**.
 
-   ```sh
-   docker compose up -d --build
-   ```
+### 3. Install and configure
 
-## Running on Windows
+**Windows:** download the repo to a permanent folder such as
+`C:\jf24vidstreamer` and double-click **`windows\setup.cmd`**. It installs
+Node.js (and, if you want, `cloudflared`) with `winget`, builds the app, and
+opens `.env` in Notepad. Fill it in, then run **`windows\start.cmd`**.
 
-Works on Windows 10/11 x64. Download the repo (Code → Download ZIP, or
-`git clone`), unzip it somewhere permanent such as `C:\jf24vidstreamer`, then:
+**Linux / macOS:**
 
-1. **Run `windows\setup.cmd`** (double-click it). It:
-   - installs Node.js LTS and FFmpeg with `winget` if they're missing (FFmpeg
-     is Gyan's full build, which includes NVENC, Quick Sync and AMF),
-   - runs `npm ci`,
-   - creates `.env`, writes FFmpeg's full path into it, lists the GPU
-     encoders your FFmpeg supports, and opens `.env` in Notepad.
-2. **Fill in `.env`** (steps 1–3 above) and save it.
-3. **Run `windows\start.cmd`.** The bot streams while that window is open.
-   It restarts automatically if it crashes. Output also goes to `logs\bot.log`.
-   Press Ctrl+C to stop.
-4. **Optional: run it in the background at boot** with
-   `windows\autostart.cmd`. It asks for admin rights, then registers a Task
-   Scheduler task named `jf24vidstreamer` that starts when Windows boots,
-   even if nobody logs in. Logs go to `logs\bot.log`.
-   - Stop: Task Scheduler → `jf24vidstreamer` → End, or
-     `Stop-ScheduledTask jf24vidstreamer` in an admin PowerShell
-   - Remove: `windows\autostart.cmd -Uninstall`
-   - After editing `.env`, restart the task (End, then Run) to apply it.
+```sh
+cp .env.example .env    # fill it in
+npm ci
+npm run build
+npm start               # or: npm run supervised  (auto-restart + logs/server.log)
+```
 
-**GPU encoding on Windows:** set `STREAM_ENCODER` to `nvenc` (NVIDIA),
-`qsv` (Intel iGPU/Arc) or `amf` (AMD Radeon) to keep CPU use low. Use
-`STREAM_HW_DECODE=true` to also decode on the GPU. If the stream doesn't start,
-`logs\bot.log` shows the FFmpeg error; switch back to `software` to check.
+**Docker:** `docker build -t jf24 . && docker run -d --env-file .env -p 8080:8080 --restart unless-stopped jf24`
 
-**Firewall:** the first run may show a Windows Firewall prompt for Node.js.
-Allow it on private networks. It needs outbound UDP to reach Discord voice.
+The server listens on `http://localhost:8080`. To check it before Discord is
+involved, set `DEV_AUTH=true`, open that address in a browser, and you should
+see the channel playing. Set it back to `false` before step 4.
 
-Keep the PC from sleeping (Settings → System → Power → Sleep: Never), or the
-stream stops when it sleeps.
+### 4. Make the server reachable
 
-## Commands
+Discord loads the Activity from its own domain and forwards requests to your
+server through its proxy, so the server needs a public HTTPS address.
+**Only expose the jf24 server (port 8080), not Jellyfin.**
 
-Commands only work for user IDs listed in `ALLOWED_USER_IDS`. They can be sent
-in any channel the account can see, or in a DM to it.
+**Option A: Cloudflare Tunnel** (needs a domain on Cloudflare)
 
-| Command | |
-|---|---|
-| `!np` | What's playing |
-| `!skip` | Next item |
-| `!play <search>` | Queue the best match to play next |
-| `!queue` | Next 10 items |
-| `!reload` | Re-fetch and reshuffle the library |
-| `!restart` | Rejoin voice and restart the stream |
-| `!help` | List commands |
+1. Cloudflare dashboard → Zero Trust → Networks → Tunnels → **Create a
+   tunnel** → Cloudflared. Name it `jf24`.
+2. Copy the `cloudflared service install <token>` command it shows and run it
+   in an admin terminal. On Windows this installs a service that starts with
+   the PC.
+3. Add a public hostname, e.g. `jf24.example.com` → service `http://localhost:8080`.
+
+**Option B: Tailscale Funnel** (free, no domain)
+
+Install Tailscale, then run `tailscale funnel --bg 8080`. It prints a fixed
+address like `https://my-pc.tailnet-name.ts.net`.
+
+Then in the Discord Developer Portal → **Activities → URL Mappings**, set the
+root mapping: **PREFIX** `/` → **TARGET** `jf24.example.com` (your hostname,
+without `https://`).
+
+### 5. Watch
+
+Join a voice channel → the rocket icon (**Activities**) → your app. Anyone in
+the channel can join from the same menu.
+
+If friends can't find the app in the Activities list, Discord may only show
+unverified apps to the owner and testers. Add them in the Developer Portal
+under **App Testers**.
+
+### Start automatically on Windows
+
+Run **`windows\autostart.cmd`**. It asks for admin rights and registers a
+Task Scheduler task, `jf24vidstreamer`, that starts the server at boot even
+if nobody logs in. The supervisor restarts it if it crashes, and logs go to
+`logs\server.log`.
+
+- Stop it: Task Scheduler → `jf24vidstreamer` → End
+- Remove it: `windows\autostart.cmd -Uninstall`
+- After editing `.env`, restart the task (End, then Run).
+
+Keep the PC from sleeping (Settings → System → Power → Sleep: Never).
+
+## Using it
+
+- **Up next**: shows the next 10 items.
+- **Skip**: moves the whole channel to the next item, for everyone.
+- **Add to queue**: search your library and queue something to play next.
+- `CONTROL_USER_IDS` in `.env` limits Skip and Queue to specific Discord
+  users (turn on Developer Mode in Discord, right-click a user → Copy User
+  ID). Leave it empty to let everyone use them.
+- Browsers may block autoplay with sound. The player then starts muted and
+  shows **Click to unmute**.
 
 ## Choosing what plays
 
@@ -118,25 +151,31 @@ in any channel the account can see, or in a DM to it.
 
 When the list runs out it's fetched again (and reshuffled), so it loops forever.
 
-## Performance
+## Bandwidth and transcoding
 
-Each item is transcoded in real time on the machine running this, not on the
-Jellyfin server. With the defaults (720p30, x264 `veryfast`), one modern
-CPU core is about enough. For 1080p, or on weak hardware:
+- Every viewer pulls their own stream: your **upload** needs about
+  `MAX_BITRATE_KBPS × viewers`. Lower `MAX_BITRATE_KBPS` (and `MAX_HEIGHT`)
+  if viewers buffer.
+- Files that are already H.264 and under the bitrate limit are sent as-is
+  (cheap). Anything else (HEVC, AV1, high bitrate) is transcoded by Jellyfin,
+  once per viewer. Turn on hardware acceleration in Jellyfin (Dashboard →
+  Playback → Transcoding) if you have a GPU.
+- Video for the Activity passes through Discord's proxy. Discord doesn't
+  publish limits for this; if playback stutters for everyone, try a lower
+  `MAX_BITRATE_KBPS`.
 
-- NVIDIA GPU: `STREAM_ENCODER=nvenc`
-- Intel GPU: `STREAM_ENCODER=qsv` (Windows or Linux)
-- AMD GPU on Windows: `STREAM_ENCODER=amf`
-- Intel/AMD GPU on Linux: `STREAM_ENCODER=vaapi` (pass `/dev/dri` into
-  Docker; see `docker-compose.yml`)
-- Or lower `STREAM_PRESET` to `superfast`/`ultrafast`
+## Development
 
-Discord limits what viewers see: non-Nitro accounts are capped at 720p30, and
-higher settings need Nitro on the streaming account.
+```sh
+DEV_AUTH=true npm run dev     # server on :8080, restarts on changes
+npm run dev:client            # client with hot reload on :5173
+```
+
+Inside Discord, the client sends API and media requests through
+`/.proxy/...`. The server accepts paths with or without that prefix.
 
 ## Limitations
 
-- Subtitles aren't burned in. Only the first audio track plays.
-- No pause or seek. `!skip` and `!play` are the controls.
-- Run one instance per account. A user account can only be in one voice
-  channel at a time.
+- No subtitles yet. Only the default audio track plays.
+- The schedule lives in memory. Restarting the server starts a new item.
+- One channel per server. All Activity instances watch the same schedule.

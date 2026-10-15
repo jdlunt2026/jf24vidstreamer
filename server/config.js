@@ -33,13 +33,12 @@ function bool(name, fallback) {
 }
 
 export const config = {
+  port: int("PORT", 8080),
   discord: {
-    token: required("DISCORD_TOKEN"),
-    guildId: required("DISCORD_GUILD_ID"),
-    channelId: required("DISCORD_VOICE_CHANNEL_ID"),
-    commandPrefix: optional("COMMAND_PREFIX", "!"),
-    // Only these user IDs may run commands. Empty = commands disabled.
-    allowedUserIds: new Set(list("ALLOWED_USER_IDS")),
+    clientId: required("DISCORD_CLIENT_ID"),
+    clientSecret: required("DISCORD_CLIENT_SECRET"),
+    // Who may skip / queue. Empty = everyone watching.
+    controlUserIds: new Set(list("CONTROL_USER_IDS")),
   },
   jellyfin: {
     url: required("JELLYFIN_URL").replace(/\/+$/, ""),
@@ -52,19 +51,12 @@ export const config = {
     order: optional("JELLYFIN_ORDER", "random"),
   },
   stream: {
-    height: int("STREAM_HEIGHT", 720),
-    frameRate: int("STREAM_FPS", 30),
-    bitrateVideo: int("STREAM_BITRATE_KBPS", 3000),
-    bitrateVideoMax: int("STREAM_BITRATE_MAX_KBPS", 4500),
-    bitrateAudio: int("STREAM_AUDIO_BITRATE_KBPS", 128),
-    codec: optional("STREAM_CODEC", "H264"),
-    encoder: optional("STREAM_ENCODER", "software"), // software | nvenc | qsv | amf | vaapi
-    preset: optional("STREAM_PRESET", "veryfast"),
-    hardwareDecoding: bool("STREAM_HW_DECODE", false),
-    type: optional("STREAM_TYPE", "go-live"), // go-live | camera
-    // Full path to ffmpeg(.exe) if it isn't on PATH.
-    ffmpegPath: optional("FFMPEG_PATH", "ffmpeg"),
+    // Upper limit per viewer. Jellyfin copies the original video when it fits
+    // (and is H.264), and transcodes down otherwise.
+    maxBitrateKbps: int("MAX_BITRATE_KBPS", 8000),
+    maxHeight: int("MAX_HEIGHT", 1080),
   },
-  // Show "Now playing" as the account's status.
-  setStatus: bool("SET_STATUS", true),
+  // Lets you open the Activity in a normal browser at http://localhost:PORT
+  // without Discord, for testing. Never enable on a public server.
+  devAuth: bool("DEV_AUTH", false),
 };

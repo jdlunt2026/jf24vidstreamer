@@ -1,5 +1,5 @@
-# Registers a Task Scheduler task that starts the streamer when Windows boots
-# (no login needed). src\supervisor.js keeps it running and writes logs\bot.log.
+# Registers a Task Scheduler task that starts the Activity server when Windows boots
+# (no login needed). server\supervisor.js keeps it running and writes logs\server.log.
 #
 #   windows\autostart.cmd             install / update the task
 #   windows\autostart.cmd -Uninstall  remove it
@@ -36,9 +36,9 @@ if (-not (Test-Path (Join-Path $Root ".env"))) {
 $node = (Get-Command node -ErrorAction SilentlyContinue).Source
 if (-not $node) { throw "node.exe not found on PATH. Run windows\setup.cmd first." }
 
-# The supervisor restarts the bot if it exits and writes logs\bot.log.
+# The supervisor restarts the server if it exits and writes logs\server.log.
 $action = New-ScheduledTaskAction -Execute $node `
-    -Argument "`"$Root\src\supervisor.js`"" `
+    -Argument "`"$Root\server\supervisor.js`"" `
     -WorkingDirectory $Root
 $trigger = New-ScheduledTaskTrigger -AtStartup
 # S4U = run as this user whether or not they're logged in, without storing a password.
@@ -54,7 +54,7 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
 Start-ScheduledTask -TaskName $TaskName
 
 Write-Host "Installed and started scheduled task '$TaskName'." -ForegroundColor Green
-Write-Host "Logs: $Root\logs\bot.log"
+Write-Host "Logs: $Root\logs\server.log"
 Write-Host "Stop it:   Stop-ScheduledTask $TaskName   (or Task Scheduler > $TaskName > End)"
 Write-Host "Remove it: windows\autostart.cmd -Uninstall"
 Read-Host "Press Enter to close"

@@ -1,8 +1,0 @@
-services:
-  jf24vidstreamer:
-    build: .
-    env_file: .env
-    restart: unless-stopped
-    # For STREAM_ENCODER=vaapi (Intel/AMD GPU):
-    # devices:
-    #   - /dev/dri:/dev/dri

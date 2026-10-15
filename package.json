@@ -1,21 +1,28 @@
 {
   "name": "jf24vidstreamer",
   "version": "1.0.0",
-  "description": "24/7 Jellyfin video stream into a Discord voice channel",
-  "main": "src/index.js",
+  "description": "24/7 Jellyfin TV channel as a Discord Activity",
+  "main": "server/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "supervised": "node src/supervisor.js"
+    "dev": "node --watch server/index.js",
+    "dev:client": "vite",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "supervised": "node server/supervisor.js"
   },
   "private": true,
   "license": "MIT",
   "dependencies": {
-    "@dank074/discord-video-stream": "^7.0.0",
-    "@lng2004/discord.js-selfbot-v13": "^3.7.2",
-    "dotenv": "^18.0.8"
+    "dotenv": "^18.0.8",
+    "express": "^5.3.0"
   },
   "type": "module",
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4",
+    "@discord/embedded-app-sdk": "^2.5.0",
+    "hls.js": "^1.7.3"
   }
 }
