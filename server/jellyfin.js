@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 
-const { url, apiKey, userId, parentIds, itemTypes, order } = config.jellyfin;
+const { url, apiKey, user, parentIds, itemTypes, order } = config.jellyfin;
+let userId = "";
 
 export const authHeader = `MediaBrowser Token="${apiKey}", Client="jf24vidstreamer", Device="discord-activity", DeviceId="jf24vidstreamer", Version="2.0.0"`;
 
@@ -34,6 +35,27 @@ async function errorDetail(res) {
   } catch {
     return text.slice(0, 300);
   }
+}
+
+/**
+ * Resolves JELLYFIN_USER_ID, which may be a user ID or a username. Called
+ * once at startup; throws with a helpful message if the user doesn't exist.
+ */
+export async function resolveUser() {
+  if (!user) return;
+  const fromUrl = /[?&]userId=([0-9a-fA-F-]{32,36})/.exec(user);
+  const id = (fromUrl ? fromUrl[1] : user).replaceAll("-", "").toLowerCase();
+  if (/^[0-9a-f]{32}$/.test(id)) {
+    userId = id;
+    return;
+  }
+  const users = await get("/Users");
+  const match = users.find((u) => u.Name.toLowerCase() === user.toLowerCase());
+  if (!match) {
+    const names = users.map((u) => u.Name).join(", ");
+    throw new Error(`JELLYFIN_USER_ID: no Jellyfin user named "${user}". Users on this server: ${names}`);
+  }
+  userId = match.Id;
 }
 
 async function fetchItems(extra = {}) {

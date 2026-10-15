@@ -89,7 +89,8 @@ export const config = {
   jellyfin: {
     url: jellyfinBaseUrl(required("JELLYFIN_URL")),
     apiKey: required("JELLYFIN_API_KEY"),
-    userId: optional("JELLYFIN_USER_ID", "") && jellyfinId("JELLYFIN_USER_ID", optional("JELLYFIN_USER_ID")),
+    // A user ID or a username; a username is looked up when the server starts.
+    user: optional("JELLYFIN_USER_ID", ""),
     // Library / folder / playlist / series IDs to pull from. Empty = everything.
     parentIds: list("JELLYFIN_PARENT_IDS").map((id) => jellyfinId("JELLYFIN_PARENT_IDS", id)),
     itemTypes: list("JELLYFIN_ITEM_TYPES", "Movie,Episode").map(itemType),

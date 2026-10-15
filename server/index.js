@@ -8,6 +8,7 @@ import express from "express";
 import { config } from "./config.js";
 import {
   authHeader,
+  resolveUser,
   describe,
   getItem,
   hlsParams,
@@ -254,6 +255,15 @@ app.use((err, _req, res, _next) => {
   log("Request failed:", err);
   if (!res.headersSent) res.status(500).json({ error: err.message });
 });
+
+try {
+  await resolveUser();
+} catch (err) {
+  log(err.message);
+  // Exit only for a bad setting; if Jellyfin is just unreachable, start
+  // anyway and let the schedule keep retrying.
+  if (err.message.startsWith("JELLYFIN_USER_ID")) process.exit(1);
+}
 
 app.listen(config.port, () => {
   log(`Listening on http://localhost:${config.port}`);
