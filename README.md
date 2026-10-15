@@ -30,6 +30,9 @@ between episodes and viewers don't get kicked out of it. If anything breaks
 
 ## Setup
 
+The steps below are the same on every OS. On Windows, follow
+[Running on Windows](#running-on-windows) instead of step 4.
+
 Requirements: Node.js 22+ and `ffmpeg` on `PATH` (or use Docker).
 
 1. **Discord account:** create an alt account and add it to your server.
@@ -51,6 +54,41 @@ Requirements: Node.js 22+ and `ffmpeg` on `PATH` (or use Docker).
    ```sh
    docker compose up -d --build
    ```
+
+## Running on Windows
+
+Works on Windows 10/11 x64. Download the repo (Code → Download ZIP, or
+`git clone`), unzip it somewhere permanent such as `C:\jf24vidstreamer`, then:
+
+1. **Run `windows\setup.cmd`** (double-click it). It:
+   - installs Node.js LTS and FFmpeg with `winget` if they're missing (FFmpeg
+     is Gyan's full build, which includes NVENC, Quick Sync and AMF),
+   - runs `npm ci`,
+   - creates `.env`, writes FFmpeg's full path into it, lists the GPU
+     encoders your FFmpeg supports, and opens `.env` in Notepad.
+2. **Fill in `.env`** (steps 1–3 above) and save it.
+3. **Run `windows\start.cmd`.** The bot streams while that window is open.
+   It restarts automatically if it crashes. Output also goes to `logs\bot.log`.
+   Press Ctrl+C to stop.
+4. **Optional: run it in the background at boot** with
+   `windows\autostart.cmd`. It asks for admin rights, then registers a Task
+   Scheduler task named `jf24vidstreamer` that starts when Windows boots,
+   even if nobody logs in. Logs go to `logs\bot.log`.
+   - Stop: Task Scheduler → `jf24vidstreamer` → End, or
+     `Stop-ScheduledTask jf24vidstreamer` in an admin PowerShell
+   - Remove: `windows\autostart.cmd -Uninstall`
+   - After editing `.env`, restart the task (End, then Run) to apply it.
+
+**GPU encoding on Windows:** set `STREAM_ENCODER` to `nvenc` (NVIDIA),
+`qsv` (Intel iGPU/Arc) or `amf` (AMD Radeon) to keep CPU use low. Use
+`STREAM_HW_DECODE=true` to also decode on the GPU. If the stream doesn't start,
+`logs\bot.log` shows the FFmpeg error; switch back to `software` to check.
+
+**Firewall:** the first run may show a Windows Firewall prompt for Node.js.
+Allow it on private networks. It needs outbound UDP to reach Discord voice.
+
+Keep the PC from sleeping (Settings → System → Power → Sleep: Never), or the
+stream stops when it sleeps.
 
 ## Commands
 
@@ -87,6 +125,8 @@ Jellyfin server. With the defaults (720p30, x264 `veryfast`), one modern
 CPU core is about enough. For 1080p, or on weak hardware:
 
 - NVIDIA GPU: `STREAM_ENCODER=nvenc`
+- Intel GPU: `STREAM_ENCODER=qsv` (Windows or Linux)
+- AMD GPU on Windows: `STREAM_ENCODER=amf`
 - Intel/AMD GPU on Linux: `STREAM_ENCODER=vaapi` (pass `/dev/dri` into
   Docker; see `docker-compose.yml`)
 - Or lower `STREAM_PRESET` to `superfast`/`ultrafast`

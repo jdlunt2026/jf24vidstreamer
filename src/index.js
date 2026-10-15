@@ -141,7 +141,8 @@ client.on("voiceStateUpdate", (oldState, newState) => {
   }
 });
 
-for (const sig of ["SIGINT", "SIGTERM"]) {
+// SIGBREAK = Ctrl+Break on Windows, SIGHUP = console window closed.
+for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"]) {
   process.on(sig, () => {
     log("Shutting down");
     station.stop();

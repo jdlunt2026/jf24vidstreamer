@@ -58,10 +58,12 @@ export const config = {
     bitrateVideoMax: int("STREAM_BITRATE_MAX_KBPS", 4500),
     bitrateAudio: int("STREAM_AUDIO_BITRATE_KBPS", 128),
     codec: optional("STREAM_CODEC", "H264"),
-    encoder: optional("STREAM_ENCODER", "software"), // software | nvenc | vaapi
+    encoder: optional("STREAM_ENCODER", "software"), // software | nvenc | qsv | amf | vaapi
     preset: optional("STREAM_PRESET", "veryfast"),
     hardwareDecoding: bool("STREAM_HW_DECODE", false),
     type: optional("STREAM_TYPE", "go-live"), // go-live | camera
+    // Full path to ffmpeg(.exe) if it isn't on PATH.
+    ffmpegPath: optional("FFMPEG_PATH", "ffmpeg"),
   },
   // Show "Now playing" as the account's status.
   setStatus: bool("SET_STATUS", true),

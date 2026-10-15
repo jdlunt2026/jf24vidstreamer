@@ -65,9 +65,10 @@ export class Station extends EventEmitter {
   skip() {
     const feeder = this.feeder;
     if (!feeder) return;
-    // SIGINT lets ffmpeg flush what it already encoded, so the next item's
-    // timestamps line up exactly; SIGKILL if it doesn't exit promptly.
-    feeder.kill("SIGINT");
+    // Sending "q" (ffmpeg's interactive quit key) lets it flush what it already
+    // encoded, so the next item's timestamps line up exactly. Unlike SIGINT this
+    // also works on Windows. Force-kill if it doesn't exit promptly.
+    feeder.stdin.end("q");
     setTimeout(() => feeder.exitCode === null && feeder.kill("SIGKILL"), 5000).unref();
   }
 
@@ -91,16 +92,16 @@ export class Station extends EventEmitter {
 
     const feed = new PassThrough({ highWaterMark: 1 << 20 });
     const remux = spawn(
-      "ffmpeg",
+      this.cfg.ffmpegPath,
       [
-        "-hide_banner", "-loglevel", "error", "-nostats",
+        "-hide_banner", "-loglevel", "error", "-nostats", "-nostdin",
         "-f", "mpegts", "-probesize", "5M", "-analyzeduration", "5M",
         "-i", "pipe:0",
         "-map", "0:v:0", "-map", "0:a:0",
         "-c", "copy",
         "-f", "nut", "pipe:1",
       ],
-      { stdio: ["pipe", "pipe", "pipe"] },
+      { stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
     );
     remux.stderr.on("data", (d) => this.emit("log", `[remux] ${d.toString().trim()}`));
     remux.stdin.on("error", () => {});
@@ -156,20 +157,21 @@ export class Station extends EventEmitter {
     if (signal.aborted) return offset;
 
     const args = this.feederArgs(entry, offset);
-    const feeder = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe", "pipe"] });
+    const feeder = spawn(this.cfg.ffmpegPath, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    feeder.stdin.on("error", () => {});
     this.feeder = feeder;
     this.current = { ...entry, startedAt: Date.now() };
     this.emit("nowPlaying", this.current);
 
     let outTime = 0;
     let stderr = "";
-    feeder.stdio[3].on("data", (chunk) => {
-      for (const m of chunk.toString().matchAll(/out_time_us=(\d+)/g)) {
-        outTime = Math.max(outTime, Number(m[1]) / 1e6);
+    // -progress writes key=value lines to stderr alongside any error messages.
+    feeder.stderr.on("data", (chunk) => {
+      for (const line of chunk.toString().split(/\r?\n/)) {
+        const m = /^out_time_us=(\d+)$/.exec(line);
+        if (m) outTime = Math.max(outTime, Number(m[1]) / 1e6);
+        else if (line && !/^\w+=\S*$/.test(line)) stderr = (stderr + line + "\n").slice(-2000);
       }
-    });
-    feeder.stderr.on("data", (d) => {
-      stderr = (stderr + d.toString()).slice(-2000);
     });
     feeder.stdout.pipe(feed, { end: false });
 
@@ -190,13 +192,15 @@ export class Station extends EventEmitter {
   feederArgs(entry, offset) {
     const c = this.cfg;
     const { width: W, height: H } = this;
-    const encoderFactory =
-      c.encoder === "nvenc"
-        ? Encoders.nvenc({ preset: "p4" })
-        : c.encoder === "vaapi"
-          ? Encoders.vaapi()
-          : Encoders.software({ x264: { preset: c.preset }, x265: { preset: c.preset } });
-    const enc = encoderFactory(c.bitrateVideo, c.bitrateVideoMax)[c.codec];
+    const encoderFactory = {
+      software: () => Encoders.software({ x264: { preset: c.preset }, x265: { preset: c.preset } }),
+      nvenc: () => Encoders.nvenc({ preset: "p4" }),
+      vaapi: () => Encoders.vaapi(),
+      qsv: () => qsv,
+      amf: () => amf,
+    }[c.encoder];
+    if (!encoderFactory) throw new Error(`Unknown STREAM_ENCODER "${c.encoder}"`);
+    const enc = encoderFactory()(c.bitrateVideo, c.bitrateVideoMax)[c.codec];
     if (!enc) throw new Error(`Encoder "${c.encoder}" doesn't support ${c.codec}`);
     const split = (opts = []) => opts.flatMap((o) => o.split(/\s+/)).filter(Boolean);
 
@@ -220,7 +224,7 @@ export class Station extends EventEmitter {
       `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2`,
       "setsar=1",
       `fps=${c.frameRate}`,
-      "format=yuv420p",
+      `format=${enc.pixelFormat ?? "yuv420p"}`,
       ...(enc.outFilters ?? []),
     ].join(",");
 
@@ -241,12 +245,24 @@ export class Station extends EventEmitter {
       "-lfe_mix_level", "1",
       "-output_ts_offset", offset.toFixed(3),
       "-muxdelay", "0", "-muxpreload", "0",
-      "-progress", "pipe:3",
+      "-progress", "pipe:2",
       "-f", "mpegts", "pipe:1",
     );
     return args;
   }
 }
+
+// Intel Quick Sync (Windows and Linux).
+const qsv = () => ({
+  H264: { name: "h264_qsv", options: ["-preset faster"], pixelFormat: "nv12" },
+  H265: { name: "hevc_qsv", options: ["-preset faster"], pixelFormat: "nv12" },
+});
+
+// AMD AMF (Windows).
+const amf = () => ({
+  H264: { name: "h264_amf", options: ["-usage lowlatency", "-quality speed", "-rc vbr_peak"] },
+  H265: { name: "hevc_amf", options: ["-usage lowlatency", "-quality speed", "-rc vbr_peak"] },
+});
 
 function even(n) {
   return Math.round(n / 2) * 2;
