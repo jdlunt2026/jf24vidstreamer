@@ -13,9 +13,27 @@ async function get(path, params = {}) {
   }
   const res = await fetch(`${url}${path}?${query}`, { headers: { Authorization: authHeader } });
   if (!res.ok) {
-    throw new Error(`Jellyfin ${path} -> HTTP ${res.status} ${res.statusText}`);
+    const detail = await errorDetail(res);
+    throw new Error(`Jellyfin ${path} -> HTTP ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`);
   }
   return res.json();
+}
+
+// Jellyfin explains 400s in an ASP.NET "problem details" body, e.g.
+// {"errors":{"parentId":["The value 'abc' is not valid."]}}.
+async function errorDetail(res) {
+  const text = await res.text().catch(() => "");
+  try {
+    const body = JSON.parse(text);
+    if (body.errors) {
+      return Object.entries(body.errors)
+        .map(([field, msgs]) => `${field}: ${[].concat(msgs).join(" ")}`)
+        .join("; ");
+    }
+    return body.detail ?? body.title ?? text.slice(0, 300);
+  } catch {
+    return text.slice(0, 300);
+  }
 }
 
 async function fetchItems(extra = {}) {
