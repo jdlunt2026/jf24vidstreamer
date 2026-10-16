@@ -47,6 +47,16 @@ console.log(
   `Activities enabled: ${embedded ? "yes" : "probably not - check Developer Portal -> Activities -> Settings"}`,
 );
 
+if (!embedded) {
+  console.log(`
+Turn Activities on first, then run this again:
+  1. Developer Portal -> ${app.name} -> Activities -> URL Mappings:
+     PREFIX "/"  ->  TARGET your tunnel hostname (e.g. jf24.example.com, no https://)
+  2. Activities -> Settings -> turn on "Enable Activities" and save.
+Enabling Activities normally creates the launch command by itself.`);
+  process.exit(1);
+}
+
 const commands = await call("GET", `/applications/${app.id}/commands`);
 const entry = commands.find((c) => c.type === 4);
 if (entry) {
