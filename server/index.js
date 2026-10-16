@@ -8,16 +8,21 @@ import express from "express";
 import { config } from "./config.js";
 import {
   authHeader,
-  resolveUser,
+  browse,
   describe,
+  episodes,
   getItem,
   hlsParams,
+  isPlayable,
   ITEM_ID,
   jellyfinUrl,
-  searchItems,
+  libraries,
+  resolveUser,
+  search,
   stopEncoding,
+  summary,
 } from "./jellyfin.js";
-import { Schedule } from "./schedule.js";
+import { Rooms } from "./rooms.js";
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -59,17 +64,32 @@ function canControl(session) {
   return controlUserIds.size === 0 || controlUserIds.has(session.user.id);
 }
 
-// ---- Schedule -----------------------------------------------------------------
+// ---- Rooms ------------------------------------------------------------------------
 
-const schedule = new Schedule();
-schedule.on("log", (msg) => log(msg));
-schedule.on("change", ({ item }) => {
+const rooms = new Rooms();
+rooms.on("log", (msg) => log(msg));
+
+const ROOM_ID = /^[\w-]{1,100}$/;
+
+function roomState(room, session) {
+  const cur = room.current;
+  return {
+    now: Date.now(),
+    current: cur && {
+      ...summary(cur.item),
+      playId: cur.playId,
+      position: room.position(),
+      paused: cur.paused,
+    },
+    queue: room.queue.map(summary),
+    viewers: room.presentViewers(),
+    canControl: canControl(session),
+  };
+}
+
+function itemLabel(item) {
   const { title, subtitle } = describe(item);
-  log(`Now playing: ${title}${subtitle ? ` - ${subtitle}` : ""}`);
-});
-
-function itemSummary(item) {
-  return { id: item.Id, type: item.Type, ...describe(item), duration: item.RunTimeTicks / 10_000 };
+  return subtitle ? `${title} - ${subtitle}` : title;
 }
 
 // ---- App ------------------------------------------------------------------------
@@ -125,7 +145,7 @@ app.post("/api/token", async (req, res) => {
 });
 
 if (config.devAuth) {
-  log("DEV_AUTH is on: anyone who can reach this server can watch and control it");
+  log("DEV_AUTH is on: anyone who can reach this server can browse, watch and control it");
   app.post("/api/dev-login", (_req, res) => {
     res.json({ session: createSession({ id: "dev", name: "Developer" }) });
   });
@@ -140,43 +160,80 @@ api.use((req, res, next) => {
   next();
 });
 
-api.get("/state", (req, res) => {
-  const cur = schedule.current;
-  res.json({
-    now: Date.now(),
-    current: cur && { ...itemSummary(cur.item), startedAt: cur.startedAt, duration: cur.duration },
-    upNext: schedule.upNext(10).map(itemSummary),
-    canControl: canControl(req.session),
-  });
+// ---- Library browsing ----
+
+api.get("/libraries", async (_req, res) => {
+  res.json(await libraries());
 });
 
-api.post("/skip", async (req, res) => {
-  if (!canControl(req.session)) return res.status(403).json({ error: "Not allowed" });
-  // The client says which item it means to skip, so a click that lands just
-  // after an item ended on its own doesn't also skip the next one.
-  const id = req.body?.id;
-  if (schedule.current && schedule.current.item.Id !== id) return res.json({ ok: true, skipped: false });
-  log(`${req.session.user.name} skipped`);
-  await schedule.advance();
-  res.json({ ok: true, skipped: true });
+api.get("/browse/:parentId", async (req, res) => {
+  if (!ITEM_ID.test(req.params.parentId)) return res.status(400).json({ error: "Bad id" });
+  const startIndex = Math.max(0, Number.parseInt(req.query.start, 10) || 0);
+  res.json(await browse(req.params.parentId, { startIndex, limit: 60 }));
+});
+
+api.get("/episodes/:seriesId", async (req, res) => {
+  if (!ITEM_ID.test(req.params.seriesId)) return res.status(400).json({ error: "Bad id" });
+  res.json(await episodes(req.params.seriesId));
 });
 
 api.get("/search", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
-  if (!q) return res.json([]);
-  const items = await searchItems(q, 15);
-  res.json(items.map(itemSummary));
+  res.json(q ? await search(q) : []);
 });
 
-api.post("/queue", async (req, res) => {
-  if (!canControl(req.session)) return res.status(403).json({ error: "Not allowed" });
-  const id = String(req.body?.id ?? "");
-  if (!ITEM_ID.test(id)) return res.status(400).json({ error: "Bad item id" });
-  const item = await getItem(id);
-  if (!item?.RunTimeTicks) return res.status(404).json({ error: "Item not found" });
-  schedule.enqueue(item);
-  log(`${req.session.user.name} queued ${describe(item).title}`);
-  res.json({ ok: true, position: schedule.requests.length });
+// ---- Rooms ----
+// The room ID is the Discord Activity instance ID, so each voice channel's
+// Activity has its own watch party.
+
+api.use("/room/:roomId", (req, res, next) => {
+  if (!ROOM_ID.test(req.params.roomId)) return res.status(400).json({ error: "Bad room" });
+  req.room = rooms.get(req.params.roomId);
+  req.room.seen(req.session.user.id, req.session.user.name);
+  next();
+});
+
+api.get("/room/:roomId", (req, res) => {
+  res.json(roomState(req.room, req.session));
+});
+
+api.post("/room/:roomId", async (req, res) => {
+  const { room, session } = req;
+  if (!canControl(session)) return res.status(403).json({ error: "Not allowed" });
+  const { action, itemId, position, index, playId } = req.body ?? {};
+  const who = session.user.name;
+
+  // Actions on the current item name it, so a click that lands just after
+  // the item changed (ended, or someone else picked something) is ignored.
+  const stale = ["pause", "resume", "seek", "next"].includes(action) && room.current?.playId !== playId;
+
+  if (action === "play" || action === "queue") {
+    if (!ITEM_ID.test(String(itemId))) return res.status(400).json({ error: "Bad item id" });
+    const item = await getItem(itemId);
+    if (!isPlayable(item)) return res.status(400).json({ error: "That item can't be played" });
+    if (action === "play") room.play(item);
+    else room.enqueue(item);
+    log(`[${room.id}] ${who} ${action === "play" ? "started" : "queued"} ${itemLabel(item)}`);
+  } else if (stale) {
+    // Ignore; the client picks up the new state from the response.
+  } else if (action === "pause") {
+    room.pause();
+  } else if (action === "resume") {
+    room.resume();
+  } else if (action === "seek" && Number.isFinite(position)) {
+    room.seek(position);
+  } else if (action === "next") {
+    room.next();
+    log(`[${room.id}] ${who} skipped`);
+  } else if (action === "stop") {
+    room.stop();
+    log(`[${room.id}] ${who} stopped playback`);
+  } else if (action === "unqueue" && Number.isInteger(index)) {
+    room.removeFromQueue(index);
+  } else {
+    return res.status(400).json({ error: "Unknown action" });
+  }
+  res.json(roomState(room, session));
 });
 
 // Ends this viewer's Jellyfin transcode when they move on to another item.
@@ -242,6 +299,22 @@ app.get("/media/:session/:itemId/*rest", async (req, res) => {
   await pipeline(Readable.fromWeb(upstream.body), res).catch(() => {});
 });
 
+// ---- Poster images ------------------------------------------------------------------
+// /img/<session>/<itemId>?h=300 -> Jellyfin's primary image, resized.
+
+app.get("/img/:session/:itemId", async (req, res) => {
+  if (!getSession(req.params.session) || !ITEM_ID.test(req.params.itemId)) return res.status(404).end();
+  const height = Math.min(Math.max(Number.parseInt(req.query.h, 10) || 300, 50), 1080);
+  const upstream = await fetch(
+    jellyfinUrl(`/Items/${req.params.itemId}/Images/Primary`, `maxHeight=${height}&quality=85`),
+    { headers: { Authorization: authHeader } },
+  ).catch(() => null);
+  if (!upstream?.ok || !upstream.body) return res.status(upstream?.status ?? 502).end();
+  res.set("Content-Type", upstream.headers.get("content-type") ?? "image/jpeg");
+  res.set("Cache-Control", "private, max-age=86400");
+  await pipeline(Readable.fromWeb(upstream.body), res).catch(() => {});
+});
+
 // ---- Client ------------------------------------------------------------------------
 
 const dist = join(root, "dist");
@@ -261,13 +334,12 @@ try {
 } catch (err) {
   log(err.message);
   // Exit only for a bad setting; if Jellyfin is just unreachable, start
-  // anyway and let the schedule keep retrying.
+  // anyway; library requests will work once it's back.
   if (err.message.startsWith("JELLYFIN_USER_ID")) process.exit(1);
 }
 
 app.listen(config.port, () => {
   log(`Listening on http://localhost:${config.port}`);
-  schedule.start();
 });
 
 for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"]) {

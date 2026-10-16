@@ -47,7 +47,7 @@ if (entry) {
   console.log("Entry Point command: missing, creating it...");
   const created = await call("POST", `/applications/${app.id}/commands`, {
     name: "launch",
-    description: "Watch the jf24 channel",
+    description: "Watch something together",
     type: 4, // PRIMARY_ENTRY_POINT
     handler: 2, // DISCORD_LAUNCH_ACTIVITY
     integration_types: [0, 1], // server install, user install

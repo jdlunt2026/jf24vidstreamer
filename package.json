@@ -1,7 +1,7 @@
 {
   "name": "jf24vidstreamer",
   "version": "1.0.0",
-  "description": "24/7 Jellyfin TV channel as a Discord Activity",
+  "description": "Watch your Jellyfin library together in a Discord Activity",
   "main": "server/index.js",
   "scripts": {
     "dev": "node --watch server/index.js",

@@ -51,21 +51,6 @@ function jellyfinId(name, raw) {
   return id;
 }
 
-// Jellyfin rejects the whole request if one item type is misspelled, so check
-// them here. Accepts any capitalization and plurals ("movies" -> "Movie").
-const ITEM_KINDS = [
-  "Movie", "Episode", "Video", "MusicVideo", "Trailer", "Series", "Season", "BoxSet",
-  "Folder", "CollectionFolder", "Playlist", "TvChannel", "LiveTvChannel", "Recording",
-];
-function itemType(raw) {
-  const lower = raw.toLowerCase();
-  const kind = ITEM_KINDS.find((k) => [lower, lower.replace(/s$/, "")].includes(k.toLowerCase()));
-  if (!kind) {
-    fail(`JELLYFIN_ITEM_TYPES: unknown type "${raw}". Use e.g. Movie, Episode, Video, MusicVideo.`);
-  }
-  return kind;
-}
-
 // People often paste the address bar, e.g. http://host:8096/web/#/home.html.
 function jellyfinBaseUrl(raw) {
   let url;
@@ -83,7 +68,7 @@ export const config = {
   discord: {
     clientId: required("DISCORD_CLIENT_ID"),
     clientSecret: required("DISCORD_CLIENT_SECRET"),
-    // Who may skip / queue. Empty = everyone watching.
+    // Who may pick what to watch and control playback. Empty = everyone.
     controlUserIds: new Set(list("CONTROL_USER_IDS")),
   },
   jellyfin: {
@@ -91,11 +76,9 @@ export const config = {
     apiKey: required("JELLYFIN_API_KEY"),
     // A user ID or a username; a username is looked up when the server starts.
     user: optional("JELLYFIN_USER_ID", ""),
-    // Library / folder / playlist / series IDs to pull from. Empty = everything.
+    // Libraries / folders / collections to offer for browsing. Empty = all
+    // video libraries.
     parentIds: list("JELLYFIN_PARENT_IDS").map((id) => jellyfinId("JELLYFIN_PARENT_IDS", id)),
-    itemTypes: list("JELLYFIN_ITEM_TYPES", "Movie,Episode").map(itemType),
-    // "random" shuffles the whole list; anything else is passed to Jellyfin's SortBy.
-    order: optional("JELLYFIN_ORDER", "random"),
   },
   stream: {
     // Upper limit per viewer. Jellyfin copies the original video when it fits

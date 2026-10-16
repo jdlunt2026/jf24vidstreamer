@@ -1,9 +1,9 @@
 # jf24vidstreamer
 
-A 24/7 "TV channel" from your Jellyfin library, as a **Discord Activity**.
-Start it in a voice channel and everyone who joins sees the same movie or
-episode at the same point, like live TV. It shuffles your library (or plays a
-show in order), lets people skip and queue things, and keeps going forever.
+Watch your Jellyfin library together in Discord. Start the **Activity** in a
+voice channel, browse your movies and shows, pick something, and everyone in
+the Activity watches it in sync. Pause, seek, queue up the next episode, or
+stop and pick something else, and it happens for everyone.
 
 It uses an official Discord application and the Embedded App SDK. No
 self-bot, no user tokens, nothing against Discord's terms.
@@ -14,10 +14,11 @@ self-bot, no user tokens, nothing against Discord's terms.
  Discord voice channel
  ┌──────────────────────────────┐       ┌──────────────────────────────────┐
  │ Activity (web page in each    │       │ jf24 server (this repo, Node)    │
- │ viewer's Discord client)      │──────▶│  • schedule: what's on, since    │
- │  hls.js player, synced to the │ via   │    when; skip / queue            │
- │  schedule; skip / queue UI    │Discord│  • Discord OAuth                 │
- └──────────────────────────────┘ proxy  │  • relays Jellyfin HLS streams   │
+ │ viewer's Discord client)      │──────▶│  • rooms: what's playing, where, │
+ │  library browser, hls.js      │ via   │    paused?, queue, who's here    │
+ │  player kept in sync with the │Discord│  • library browsing + posters    │
+ │  room; play/pause/seek/queue  │ proxy │  • Discord OAuth                 │
+ └──────────────────────────────┘       │  • relays Jellyfin HLS streams   │
                                          └───────────────┬──────────────────┘
                                                          │ LAN, API key stays here
                                                    ┌─────▼─────┐
@@ -25,17 +26,17 @@ self-bot, no user tokens, nothing against Discord's terms.
                                                    └───────────┘
 ```
 
-- The server keeps a schedule ("item X started at 21:04:10"). It doesn't
-  stream anything itself; it just knows what's on.
-- When someone opens the Activity, it asks the server what's on and plays it
-  from `now - startedAt`. Every viewer is in sync to within a second or two,
-  and the player catches up on its own after buffering.
+- Each Activity launch (one per voice channel) is a **room**. Different voice
+  channels can watch different things at the same time.
+- The room holds a shared clock: what's playing, its position, and whether
+  it's paused. Every viewer's player follows that clock, so play, pause and
+  seek apply to everyone, and anyone who joins late lands at the right spot.
 - Video comes from Jellyfin as HLS. Jellyfin sends the original video when the
   browser can play it (H.264 under `MAX_BITRATE_KBPS`) and transcodes
   otherwise. The server relays it and adds the Jellyfin API key, which never
   reaches viewers.
-- When nobody is watching, nothing is streamed. The schedule keeps moving,
-  so it's "live" whenever someone tunes in.
+- If everyone leaves, playback pauses after a minute and picks up where it
+  was when someone comes back.
 
 ## Setup
 
@@ -79,7 +80,7 @@ npm start               # or: npm run supervised  (auto-restart + logs/server.lo
 
 The server listens on `http://localhost:8080`. To check it before Discord is
 involved, set `DEV_AUTH=true`, open that address in a browser, and you should
-see the channel playing. Set it back to `false` before step 4.
+see your libraries. Set it back to `false` before step 4.
 
 ### 4. Make the server reachable
 
@@ -134,27 +135,31 @@ Keep the PC from sleeping (Settings → System → Power → Sleep: Never).
 
 ## Using it
 
-- **Up next**: shows the next 10 items.
-- **Skip**: moves the whole channel to the next item, for everyone.
-- **Add to queue**: search your library and queue something to play next.
-- `CONTROL_USER_IDS` in `.env` limits Skip and Queue to specific Discord
-  users (turn on Developer Mode in Discord, right-click a user → Copy User
-  ID). Leave it empty to let everyone use them.
+- **Browse**: library tabs at the top, then posters. Click a show to see its
+  episodes, or use **Search**.
+- Click a movie (or **▶ Play** on an episode) → **Play now** starts it for
+  everyone in the Activity. **+ Queue** adds it to **Up next**.
+- **Player controls** (shared): play/pause (or Space), back 10 s, forward 30 s,
+  drag the progress bar, **Next** (plays the next queued item), **Stop** (back
+  to the library). When something ends, the next queued item starts.
+- **Browse** while watching to queue more; the video keeps playing. **Back to
+  video** returns to it.
+- Volume, mute and fullscreen are per viewer.
+- `CONTROL_USER_IDS` in `.env` limits who can pick things and control playback
+  (turn on Developer Mode in Discord, right-click a user → Copy User ID).
+  Everyone else can browse and watch. Leave it empty to let everyone control.
 - Browsers may block autoplay with sound. The player then starts muted and
   shows **Click to unmute**.
 
-## Choosing what plays
+## Choosing what's offered
 
-- `JELLYFIN_PARENT_IDS` limits playback to libraries, folders, series,
-  collections or playlists. Open the item in Jellyfin's web UI; the ID is the
-  `id=` value in the URL. You can list several, separated by commas.
-- `JELLYFIN_ITEM_TYPES` defaults to `Movie,Episode`. Add `MusicVideo` or
-  `Video` (home videos) if you want those.
-- `JELLYFIN_ORDER=random` shuffles. To play a series in order, set the series
-  ID as the parent and use
-  `JELLYFIN_ORDER=SeriesSortName,ParentIndexNumber,IndexNumber`.
-
-When the list runs out it's fetched again (and reshuffled), so it loops forever.
+- By default the browser shows all of Jellyfin's video libraries (music,
+  books and photos are hidden).
+- `JELLYFIN_USER_ID` (a username or ID) shows only what that Jellyfin user
+  can see, including their parental controls.
+- `JELLYFIN_PARENT_IDS` replaces the library tabs with specific libraries,
+  folders or collections. Open it in Jellyfin's web UI; the ID is the `id=`
+  value in the URL. List several separated by commas.
 
 ## Bandwidth and transcoding
 
@@ -176,11 +181,14 @@ DEV_AUTH=true npm run dev     # server on :8080, restarts on changes
 npm run dev:client            # client with hot reload on :5173
 ```
 
+With `DEV_AUTH=true`, `http://localhost:8080/?room=name` opens a given room;
+open it in two windows to test syncing.
+
 Inside Discord, the client sends API and media requests through
 `/.proxy/...`. The server accepts paths with or without that prefix.
 
 ## Limitations
 
 - No subtitles yet. Only the default audio track plays.
-- The schedule lives in memory. Restarting the server starts a new item.
-- One channel per server. All Activity instances watch the same schedule.
+- Rooms live in memory. Restarting the server stops whatever was playing.
+- No resume points or watched markers are sent back to Jellyfin.

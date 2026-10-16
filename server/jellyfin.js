@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 
-const { url, apiKey, user, parentIds, itemTypes, order } = config.jellyfin;
+const { url, apiKey, user, parentIds } = config.jellyfin;
 let userId = "";
 
 export const authHeader = `MediaBrowser Token="${apiKey}", Client="jf24vidstreamer", Device="discord-activity", DeviceId="jf24vidstreamer", Version="2.0.0"`;
@@ -58,52 +58,86 @@ export async function resolveUser() {
   userId = match.Id;
 }
 
-async function fetchItems(extra = {}) {
-  const base = {
+// What the browser offers: playable videos plus the containers that lead to them.
+const PLAYABLE = new Set(["Movie", "Episode", "Video", "MusicVideo", "Trailer"]);
+const BROWSE_TYPES = "Movie,Series,Video,MusicVideo,BoxSet";
+// Library kinds that hold no video.
+const NON_VIDEO_LIBRARIES = new Set(["music", "books", "photos", "livetv", "playlists"]);
+
+const LIST_FIELDS = "ProductionYear,RunTimeTicks,ChildCount";
+
+/** Top-level libraries to show as tabs. */
+export async function libraries() {
+  if (parentIds.length) {
+    const result = await get("/Items", { userId, ids: parentIds.join(",") });
+    return result.Items.map(summary);
+  }
+  const result = userId ? await get("/UserViews", { userId }) : await get("/Library/MediaFolders");
+  return result.Items.filter((lib) => !NON_VIDEO_LIBRARIES.has(lib.CollectionType)).map(summary);
+}
+
+/** One page of a library or folder: movies, shows, videos and collections, A-Z. */
+export async function browse(parentId, { startIndex = 0, limit = 60 } = {}) {
+  const result = await get("/Items", {
     userId,
+    parentId,
     recursive: true,
-    includeItemTypes: itemTypes.join(","),
-    mediaTypes: "Video",
-    isMissing: false,
-    enableImages: false,
+    includeItemTypes: BROWSE_TYPES,
+    sortBy: "SortName",
+    sortOrder: "Ascending",
+    fields: LIST_FIELDS,
+    startIndex,
+    limit,
     enableUserData: false,
-    ...extra,
-  };
+  });
+  return { items: result.Items.map(summary), total: result.TotalRecordCount };
+}
+
+/** All episodes of a series, in order. */
+export async function episodes(seriesId) {
+  const result = await get(`/Shows/${seriesId}/Episodes`, { userId, fields: LIST_FIELDS, enableUserData: false });
+  return result.Items.filter((ep) => ep.RunTimeTicks > 0 && ep.LocationType !== "Virtual").map(summary);
+}
+
+export async function search(term) {
   const parents = parentIds.length ? parentIds : [undefined];
   const items = [];
   for (const parentId of parents) {
-    const result = await get("/Items", { ...base, parentId });
+    const result = await get("/Items", {
+      userId,
+      parentId,
+      searchTerm: term,
+      recursive: true,
+      includeItemTypes: `${BROWSE_TYPES},Episode`,
+      fields: LIST_FIELDS,
+      limit: 40,
+      enableUserData: false,
+    });
     items.push(...result.Items);
   }
-  // A playlist can contain the same item twice; parents can overlap.
-  // Items without a runtime can't be scheduled.
   const seen = new Set();
-  return items.filter((item) => item.RunTimeTicks > 0 && !seen.has(item.Id) && seen.add(item.Id));
-}
-
-function shuffle(array) {
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [array[i], array[j]] = [array[j], array[i]];
-  }
-  return array;
-}
-
-/** Builds one full pass over the configured library, in playback order. */
-export async function buildPlaylist() {
-  if (order.toLowerCase() === "random") {
-    return shuffle(await fetchItems());
-  }
-  return fetchItems({ sortBy: order, sortOrder: "Ascending" });
-}
-
-export async function searchItems(term, limit = 10) {
-  return fetchItems({ searchTerm: term, limit });
+  return items.filter((i) => !seen.has(i.Id) && seen.add(i.Id)).map(summary);
 }
 
 export async function getItem(id) {
-  const result = await get("/Items", { userId, ids: id });
+  const result = await get("/Items", { userId, ids: id, fields: LIST_FIELDS });
   return result.Items[0];
+}
+
+export function isPlayable(item) {
+  return PLAYABLE.has(item?.Type) && item.RunTimeTicks > 0;
+}
+
+/** The shape the client gets for any item. */
+export function summary(item) {
+  return {
+    id: item.Id,
+    type: item.Type,
+    ...describe(item),
+    duration: item.RunTimeTicks ? item.RunTimeTicks / 10_000 : 0,
+    playable: isPlayable(item),
+    image: Boolean(item.ImageTags?.Primary),
+  };
 }
 
 export function describe(item) {
@@ -111,6 +145,9 @@ export function describe(item) {
     const s = String(item.ParentIndexNumber ?? 0).padStart(2, "0");
     const e = String(item.IndexNumber ?? 0).padStart(2, "0");
     return { title: item.SeriesName, subtitle: `S${s}E${e} · ${item.Name}` };
+  }
+  if (item.Type === "Series" && item.ChildCount) {
+    return { title: item.Name, subtitle: `${item.ChildCount} season${item.ChildCount === 1 ? "" : "s"}` };
   }
   return { title: item.Name, subtitle: item.ProductionYear ? String(item.ProductionYear) : "" };
 }

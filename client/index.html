@@ -3,45 +3,93 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>jf24</title>
+    <title>Watch Together</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <video id="video" playsinline></video>
 
-    <div id="status" class="status">Connecting…</div>
+    <!-- Player overlay: shown while something is playing -->
+    <section id="player" hidden>
+      <header class="overlay top">
+        <div class="np">
+          <div id="np-title" class="np-title"></div>
+          <div id="np-subtitle" class="np-subtitle"></div>
+        </div>
+        <div id="viewers" class="viewers"></div>
+      </header>
 
-    <button id="unmute" class="unmute" hidden>🔇 Click to unmute</button>
+      <div id="waiting" class="center-note" hidden>Starting…</div>
+      <button id="unmute" class="unmute" hidden>🔇 Click to unmute</button>
 
-    <header id="nowplaying" class="overlay top">
-      <div class="np-label">Now playing</div>
-      <div id="np-title" class="np-title"></div>
-      <div id="np-subtitle" class="np-subtitle"></div>
-      <div class="progress"><div id="np-bar" class="bar"></div></div>
-      <div id="np-time" class="np-time"></div>
-    </header>
+      <footer class="overlay bottom">
+        <div class="seek-row">
+          <span id="time" class="time">0:00</span>
+          <input id="seek" type="range" min="0" max="1" step="1" value="0" />
+          <span id="duration" class="time">0:00</span>
+        </div>
+        <div class="controls">
+          <button id="back10" class="ctl" title="Back 10 seconds">⟲ 10</button>
+          <button id="playpause" class="ctl primary" title="Play / pause">⏸</button>
+          <button id="fwd30" class="ctl" title="Forward 30 seconds">30 ⟳</button>
+          <button id="next" class="ctl" title="Play next in queue">Next ⏭</button>
+          <button id="stop" class="ctl" title="Stop and go back to the library">Stop ⏹</button>
+          <span class="spacer"></span>
+          <button id="mute" title="Mute">🔊</button>
+          <input id="volume" type="range" min="0" max="1" step="0.05" value="1" title="Volume" />
+          <button id="queue-toggle">Queue</button>
+          <button id="to-browse">Browse</button>
+          <button id="fullscreen" title="Fullscreen">⛶</button>
+        </div>
+      </footer>
 
-    <footer class="overlay bottom">
-      <div class="controls">
-        <button id="mute" title="Mute">🔊</button>
-        <input id="volume" type="range" min="0" max="1" step="0.05" value="1" title="Volume" />
-        <span class="spacer"></span>
-        <button id="panel-toggle">Up next</button>
-        <button id="skip" hidden>Skip ⏭</button>
-        <button id="fullscreen" title="Fullscreen">⛶</button>
+      <aside id="queue-panel" class="panel" hidden>
+        <button id="queue-close" class="close" title="Close">✕</button>
+        <h2>Up next</h2>
+        <ol id="queue"></ol>
+        <p id="queue-empty" class="muted">Nothing queued. Use Browse to add something.</p>
+      </aside>
+    </section>
+
+    <!-- Library browser -->
+    <section id="browse">
+      <div id="nowbar" class="nowbar" hidden>
+        <span>▶ Now watching: <strong id="nowbar-title"></strong></span>
+        <button id="to-player">Back to video</button>
       </div>
-    </footer>
+      <header class="browse-header">
+        <nav id="libraries" class="tabs"></nav>
+        <input id="search" type="search" placeholder="Search" autocomplete="off" />
+      </header>
+      <div class="browse-sub">
+        <nav id="crumbs" class="crumbs"></nav>
+        <span id="browse-viewers" class="viewers"></span>
+      </div>
+      <p id="browse-note" class="muted"></p>
+      <div id="grid" class="grid"></div>
+      <ol id="episodes" class="episodes" hidden></ol>
+      <button id="more" class="more" hidden>Load more</button>
+    </section>
 
-    <aside id="panel" class="panel" hidden>
-      <button id="panel-close" class="close" title="Close">✕</button>
-      <h2>Up next</h2>
-      <ol id="upnext"></ol>
-      <form id="search" hidden>
-        <h2>Add to queue</h2>
-        <input id="search-input" type="search" placeholder="Search movies and shows" autocomplete="off" />
-        <ul id="results"></ul>
-      </form>
-    </aside>
+    <!-- Item details -->
+    <div id="sheet" class="sheet" hidden>
+      <div class="sheet-card">
+        <button id="sheet-close" class="close" title="Close">✕</button>
+        <img id="sheet-img" alt="" />
+        <div>
+          <h3 id="sheet-title"></h3>
+          <p id="sheet-subtitle" class="muted"></p>
+          <p id="sheet-duration" class="muted"></p>
+          <div class="sheet-actions">
+            <button id="sheet-play" class="primary">▶ Play now</button>
+            <button id="sheet-queue">+ Add to queue</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="status" class="status">Connecting…</div>
+    <div id="toast" class="toast" hidden></div>
 
     <script type="module" src="./main.js"></script>
   </body>
