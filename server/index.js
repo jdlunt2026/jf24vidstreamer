@@ -105,7 +105,25 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Log requests (except the high-volume video, poster and room polling ones),
+// so it's visible whether Discord reaches this server at all.
+app.use((req, res, next) => {
+  const quiet = /^\/(media|img)\//.test(req.path) || (req.method === "GET" && req.path.startsWith("/api/room/"));
+  if (!quiet) {
+    const start = Date.now();
+    res.on("finish", () => log(`${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - start}ms)`));
+  }
+  next();
+});
+
 app.use(express.json({ limit: "16kb" }));
+
+// Startup steps and errors reported by the Activity (no dev tools in Discord).
+app.post("/api/client-log", (req, res) => {
+  const { kind, message, inDiscord } = req.body ?? {};
+  log(`[activity${inDiscord ? "" : " (browser)"}] ${String(kind).slice(0, 20)}: ${String(message).slice(0, 1000)}`);
+  res.status(204).end();
+});
 
 app.get("/api/config", (_req, res) => {
   res.json({ clientId: config.discord.clientId, devAuth: config.devAuth });

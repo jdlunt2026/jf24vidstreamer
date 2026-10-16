@@ -45,21 +45,56 @@ async function api(path, { method = "GET", body } = {}) {
   return data;
 }
 
+// ---- Startup diagnostics --------------------------------------------------------------
+// Shows which step startup is on, and sends errors to the server log, since
+// there are no dev tools inside Discord.
+
+function stage(text) {
+  $("status").textContent = text;
+  report("stage", text);
+}
+
+function report(kind, message) {
+  fetch(`${BASE}/api/client-log`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind, message: String(message).slice(0, 1000), inDiscord }),
+  }).catch(() => {});
+}
+
+window.addEventListener("error", (e) => report("error", `${e.message} (${e.filename}:${e.lineno})`));
+window.addEventListener("unhandledrejection", (e) => report("error", e.reason?.stack ?? e.reason));
+
+function withTimeout(promise, ms, what) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms)),
+  ]);
+}
+
 async function signIn() {
-  const cfg = await api("/config");
+  stage("Contacting the server…");
+  const cfg = await withTimeout(api("/config"), 15_000, "Contacting the server");
   if (inDiscord) {
+    stage("Connecting to Discord…");
     discord ??= new DiscordSDK(cfg.clientId);
-    await discord.ready();
+    await withTimeout(discord.ready(), 20_000, "Connecting to Discord");
     roomId = discord.instanceId;
-    const { code } = await discord.commands.authorize({
-      client_id: cfg.clientId,
-      response_type: "code",
-      state: "",
-      prompt: "none",
-      scope: ["identify", "rpc.activities.write"],
-    });
+    stage("Waiting for Discord authorization…");
+    const { code } = await withTimeout(
+      discord.commands.authorize({
+        client_id: cfg.clientId,
+        response_type: "code",
+        state: "",
+        prompt: "none",
+        scope: ["identify", "rpc.activities.write"],
+      }),
+      120_000,
+      "Discord authorization",
+    );
+    stage("Signing in…");
     const { access_token, session: s } = await api("/token", { method: "POST", body: { code } });
-    await discord.commands.authenticate({ access_token });
+    await withTimeout(discord.commands.authenticate({ access_token }), 20_000, "Discord sign-in");
     session = s;
   } else if (cfg.devAuth) {
     roomId = params.get("room") ?? "dev";
@@ -555,11 +590,15 @@ for (const ev of ["mousemove", "pointerdown", "keydown", "touchstart"]) {
   try {
     await signIn();
   } catch (err) {
-    $("status").textContent = err.message;
+    const message = err?.message ?? JSON.stringify(err);
+    $("status").textContent = `Couldn't start: ${message}`;
+    report("error", `Startup failed: ${message}`);
     return;
   }
+  stage("Loading…");
   setView("browse");
   await poll();
+  report("stage", "Ready");
   loadLibraries().catch((err) => ($("browse-note").textContent = `Couldn't load libraries: ${err.message}`));
   setInterval(poll, POLL_MS);
   setInterval(renderProgress, 500);
