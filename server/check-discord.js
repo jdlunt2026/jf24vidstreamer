@@ -3,6 +3,7 @@
 // it's missing. Enabling Activities normally creates it, but not always.
 //
 //   DISCORD_BOT_TOKEN=... node server/check-discord.js
+//   (on Windows, just double-click windows\check-discord.cmd)
 //
 // The bot token is under Developer Portal -> your app -> Bot -> Reset Token.
 // It's only used for this one-off check; you don't need to keep it anywhere.
@@ -14,6 +15,13 @@ const token = (process.env.DISCORD_BOT_TOKEN ?? process.argv[2] ?? "").trim();
 if (!clientId || !token) {
   console.error("Usage: set DISCORD_CLIENT_ID in .env, then run:");
   console.error("  node server/check-discord.js <bot token>");
+  process.exit(1);
+}
+
+if (/^\d{17,20}$/.test(token)) {
+  console.error("That looks like an application/client ID, not a bot token.");
+  console.error("Get the token from Developer Portal -> your app -> Bot -> Reset Token.");
+  console.error("It's a long string with two dots in it.");
   process.exit(1);
 }
 

@@ -112,7 +112,7 @@ Join a voice channel → the rocket icon (**Activities**) → your app. Anyone i
 the channel can join from the same menu.
 
 If **you** can't find the app in the Activities list, run
-`npm run check-discord -- <bot token>` (Developer Portal → Bot → Reset Token).
+**`windows\check-discord.cmd`** (or `npm run check-discord -- <bot token>` from the project folder). The bot token is under Developer Portal → Bot → Reset Token; it is not the application ID.
 It checks that Activities are on and creates the "Entry Point" command Discord
 needs to list the app, if it's missing. Then restart Discord (Ctrl+R).
 
